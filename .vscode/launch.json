@@ -19,6 +19,14 @@
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/server/",
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Client Launch",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/client/",
+      "console": "integratedTerminal"
     }
   ]
 }

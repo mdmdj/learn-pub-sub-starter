@@ -2,11 +2,10 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/mdmdj/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/mdmdj/learn-pub-sub-starter/internal/pubsub"
 	"github.com/mdmdj/learn-pub-sub-starter/internal/routing"
-	"os"
-	"os/signal"
-	"syscall"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -30,14 +29,71 @@ func main() {
 	}
 	defer mqChannel.Close()
 
-	pubsub.PublishJSON(mqChannel, routing.ExchangePerilDirect, routing.PauseKey, routing.PlayingState{IsPaused: true})
+	logChannel, logQueue, err := bindToLogs(amqpConnection)
+	if err != nil {
+		fmt.Println("Error in bindToLogs: ", err)
+		panic("Error in bindToLogs")
+	}
+	fmt.Println(logChannel, logQueue)
 
-	// Listen for CTRL+C to close the server
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	signal.Notify(c, syscall.SIGTERM)
-	interruptSignal := <-c
-	fmt.Println(interruptSignal)
-	fmt.Printf("Got signal: %v\n", interruptSignal)
-	fmt.Println("Closing server")
+	gamelogic.PrintServerHelp()
+
+	replRunning := true
+
+	for replRunning {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+
+		fmt.Println("Input: ", words, len(words))
+
+		switch words[0] {
+		case "pause":
+			fmt.Println("Sending pause message from server...")
+			err := sendPause(mqChannel)
+			if err != nil {
+				fmt.Printf("Error sending pause: %v", err)
+			}
+		case "resume":
+			fmt.Println("Sending resume message from server...")
+			err := sendResume(mqChannel)
+			if err != nil {
+				fmt.Printf("Error sending resume: %v", err)
+			}
+		case "quit":
+			fmt.Println("Quitting server...")
+			replRunning = false
+		case "help":
+			gamelogic.PrintServerHelp()
+		default:
+			fmt.Println("Unknown command: ", words[0])
+			gamelogic.PrintServerHelp()
+		}
+	}
+}
+
+func sendPause(channel *amqp.Channel) error {
+	return pubsub.PublishJSON(channel,
+		routing.ExchangePerilDirect,
+		routing.PauseKey,
+		routing.PlayingState{IsPaused: true})
+}
+
+func sendResume(channel *amqp.Channel) error {
+	return pubsub.PublishJSON(channel,
+		routing.ExchangePerilDirect,
+		routing.PauseKey,
+		routing.PlayingState{IsPaused: false})
+}
+
+func bindToLogs(amqpConnection *amqp.Connection) (
+	channel *amqp.Channel,
+	queue amqp.Queue,
+	err error) {
+	channel, queue, err = pubsub.DeclareAndBind(
+		amqpConnection,
+		routing.ExchangePerilTopic, routing.GameLogSlug,
+		routing.GameLogSlug+".*", pubsub.Durable)
+	return
 }
