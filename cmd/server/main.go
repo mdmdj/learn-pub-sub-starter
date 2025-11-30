@@ -94,6 +94,6 @@ func bindToLogs(amqpConnection *amqp.Connection) (
 	channel, queue, err = pubsub.DeclareAndBind(
 		amqpConnection,
 		routing.ExchangePerilTopic, routing.GameLogSlug,
-		routing.GameLogSlug+".*", pubsub.Durable)
+		routing.GameLogSlug+".*", pubsub.SimpleQueueDurable)
 	return
 }
