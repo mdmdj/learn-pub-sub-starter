@@ -10,6 +10,14 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+type ClientState struct {
+	GetUserName func() string
+	Connection  *amqp.Connection
+	Channel     *amqp.Channel
+}
+
+var cs ClientState
+
 func main() {
 	fmt.Println("Starting Peril client...")
 	const rabbitConnString = "amqp://guest:guest@localhost:5672/"
@@ -33,11 +41,15 @@ func main() {
 	}
 	gs := gamelogic.NewGameState(username)
 
+	cs.Connection = conn
+	cs.Channel = channel
+	cs.GetUserName = gs.GetUsername
+
 	// subscribe to pause state
 	err = pubsub.SubscribeJSON(
-		conn,
+		cs.Connection,
 		routing.ExchangePerilDirect,
-		routing.PauseKey+"."+gs.GetUsername(),
+		routing.PauseKey+"."+cs.GetUserName(),
 		routing.PauseKey,
 		pubsub.SimpleQueueTransient,
 		handlerPause(gs),
@@ -48,15 +60,28 @@ func main() {
 
 	// subscribe to army moves
 	err = pubsub.SubscribeJSON(
-		conn,                       // connection
+		cs.Connection,              // connection
 		routing.ExchangePerilTopic, // exchange
-		routing.ArmyMovesPrefix+"."+gs.GetUsername(), // queue name
+		routing.ArmyMovesPrefix+"."+cs.GetUserName(), // queue name
 		routing.ArmyMovesPrefix+".*",                 // routing key
 		pubsub.SimpleQueueTransient,                  // queue type
 		handlerArmyMoves(gs),                         // handler function
 	)
 	if err != nil {
 		log.Fatalf("could not subscribe to army moves: %v", err)
+	}
+
+	// subscribe to war
+	err = pubsub.SubscribeJSON(
+		cs.Connection,                      // connection
+		routing.ExchangePerilTopic,         // exchange
+		routing.WarRecognitionsPrefix,      // queue name
+		routing.WarRecognitionsPrefix+".*", // routing key
+		pubsub.SimpleQueueDurable,          // queue type
+		handlerWar(gs),                     // handler function
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to war: %v", err)
 	}
 
 	for {
@@ -72,9 +97,9 @@ func main() {
 				continue
 			}
 			errPub := pubsub.PublishJSON(
-				channel,                    //channel
+				cs.Channel,                 //channel
 				routing.ExchangePerilTopic, //exchange
-				routing.ArmyMovesPrefix+"."+gs.GetUsername(), //key
+				routing.ArmyMovesPrefix+"."+cs.GetUserName(), //key
 				am, //val
 			)
 			if errPub != nil {
